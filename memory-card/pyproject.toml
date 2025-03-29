@@ -1,0 +1,20 @@
+[project]
+name = "memory-card"
+version = "0.1.0"
+description = "A virtual env for MemCARDuino.py"
+authors = [
+    {name = "Menno van der Graaf",email = "mennovandergraaf@hotmail.com"}
+]
+license = {text = "MIT"}
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "pyserial (>=3.5,<4.0)"
+]
+
+[tool.poetry]
+package-mode = false
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
