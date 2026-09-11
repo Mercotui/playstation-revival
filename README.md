@@ -11,3 +11,5 @@ I have:
 Both of them have PAL video out, and both of them have burned out CD drives.
 
 To start I flash a bootloader onto a memory card, [see steps](memory-card/README.md).
+
+To load games on the PS2 I use OPL and SMB, see [server config](opl-samba/README.md).
