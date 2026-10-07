@@ -1,7 +1,7 @@
-From a72eec72ccfdf7c9174354abca72cbcd2661134e Mon Sep 17 00:00:00 2001
+From 628562fabdb2bbb7a4de0152a842d13cb1b33540 Mon Sep 17 00:00:00 2001
 From: Menno van der Graaf <mennovandergraaf@hotmail.com>
 Date: Thu, 1 Oct 2026 21:34:10 +0200
-Subject: [PATCH] Bump Amlogic common drivers for X96Q Devicetree
+Subject: [PATCH 1/2] Bump Amlogic common drivers for X98Q Devicetree
 
 Also fix the talloc download.
 ---

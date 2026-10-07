@@ -1,0 +1,1687 @@
+From a5598d93f222580a0d27c1d704b2e5dd5de05753 Mon Sep 17 00:00:00 2001
+From: Menno van der Graaf <mennovandergraaf@hotmail.com>
+Date: Tue, 6 Oct 2026 22:24:59 +0200
+Subject: [PATCH 2/2] Add duckstation and SDL2
+
+---
+ .../emulation/duckstation/config/settings.ini |  54 ++
+ packages/emulation/duckstation/package.mk     |  64 ++
+ .../duckstation/patches/000-fix-cmake.patch   | 112 +++
+ ...001-Fix-no-gui-EGL-surface-selection.patch |  46 ++
+ .../duckstation/patches/006-maxbuttons.patch  |  13 +
+ .../duckstation/scripts/duckstation.sh        |  33 +
+ packages/multimedia/SDL2/package.mk           |  91 +++
+ .../Amlogic/0001-mali-fbdev-add-driver.patch  | 740 ++++++++++++++++++
+ .../0005-SDL2-2.28.1.odroidgoa-support.patch  | 290 +++++++
+ .../0006-KMSDRM-Also-rotate-the-cursor.patch  |  88 +++
+ ...d-missing-gbm_bo_get_offset-and-SDL_.patch |  45 ++
+ packages/virtual/image/package.mk             |   2 +
+ 12 files changed, 1578 insertions(+)
+ create mode 100644 packages/emulation/duckstation/config/settings.ini
+ create mode 100644 packages/emulation/duckstation/package.mk
+ create mode 100644 packages/emulation/duckstation/patches/000-fix-cmake.patch
+ create mode 100644 packages/emulation/duckstation/patches/0001-Fix-no-gui-EGL-surface-selection.patch
+ create mode 100644 packages/emulation/duckstation/patches/006-maxbuttons.patch
+ create mode 100755 packages/emulation/duckstation/scripts/duckstation.sh
+ create mode 100644 packages/multimedia/SDL2/package.mk
+ create mode 100644 packages/multimedia/SDL2/patches/Amlogic/0001-mali-fbdev-add-driver.patch
+ create mode 100644 packages/multimedia/SDL2/patches/OdroidGoAdvance/0005-SDL2-2.28.1.odroidgoa-support.patch
+ create mode 100644 packages/multimedia/SDL2/patches/OdroidGoAdvance/0006-KMSDRM-Also-rotate-the-cursor.patch
+ create mode 100644 packages/multimedia/SDL2/patches/Rockchip/0001-kmsdrm-Workaround-missing-gbm_bo_get_offset-and-SDL_.patch
+
+diff --git a/packages/emulation/duckstation/config/settings.ini b/packages/emulation/duckstation/config/settings.ini
+new file mode 100644
+index 0000000000..51c5c6ebdf
+--- /dev/null
++++ b/packages/emulation/duckstation/config/settings.ini
+@@ -0,0 +1,54 @@
++[Main]
++SettingsVersion = 3
++StartFullscreen = true
++
++[BIOS]
++SearchDirectory = /storage/roms/bios
++PathNTSCU = 
++PathNTSCJ = 
++PathPAL = 
++PatchTTYEnable = false
++PatchFastBoot = true
++
++[Controller1]
++Type = AnalogController
++ButtonUp = Controller0/Button11
++ButtonDown = Controller0/Button12
++ButtonLeft = Controller0/Button13
++ButtonRight = Controller0/Button14
++ButtonSelect = Controller0/Button4
++ButtonStart = Controller0/Button6
++ButtonTriangle = Controller0/Button3
++ButtonCross = Controller0/Button0
++ButtonSquare = Controller0/Button2
++ButtonCircle = Controller0/Button1
++ButtonL1 = Controller0/Button9
++ButtonL2 = Controller0/+Axis4
++ButtonR1 = Controller0/Button10
++ButtonR2 = Controller0/+Axis5
++ButtonL3 = Controller0/Button7
++ButtonR3 = Controller0/Button8
++AxisLeftX = Controller0/Axis0
++AxisLeftY = Controller0/Axis1
++AxisRightX = Controller0/Axis2
++AxisRightY = Controller0/Axis3
++ButtonAnalog = Controller0/Button5
++
++[Hotkeys]
++OpenQuickMenu = Controller0/Button5
++
++[Logging]
++LogLevel = Error
++LogFilter = 
++LogToConsole = false
++LogToDebug = false
++LogToWindow = false
++LogToFile = false
++
++[Display]
++ShowFPS = true
++ShowVPS = true
++ShowSpeed = true
++
++[Audio]
++Backend = SDL
+diff --git a/packages/emulation/duckstation/package.mk b/packages/emulation/duckstation/package.mk
+new file mode 100644
+index 0000000000..bd5a995ec0
+--- /dev/null
++++ b/packages/emulation/duckstation/package.mk
+@@ -0,0 +1,64 @@
++# SPDX-License-Identifier: GPL-2.0-or-later
++# Copyright (C) 2021-2026 Shanti Gilbert (https://github.com/shantigilbert)
++# Copyright (C) 2026 Menno van der Graaf (https://github.com/mercotui)
++
++PKG_NAME="duckstation"
++PKG_VERSION="fd3507c16d098fb32806c281caaefb205946da8a"
++PKG_SHA256="e8d12c689f6bdff539485e22f21399613b9f6830652591c8607b3a2e59053c4f"
++PKG_ARCH="aarch64"
++PKG_LICENSE="GPLv3"
++PKG_SITE="https://github.com/stenzek/duckstation"
++PKG_URL="https://github.com/stenzek/duckstation/archive/${PKG_VERSION}.tar.gz"
++PKG_DEPENDS_TARGET="toolchain SDL2 nasm:host ${OPENGLES} libevdev libdrm"
++PKG_SHORTDESC="Fast PlayStation 1 emulator for x86-64/AArch32/AArch64 "
++PKG_TOOLCHAIN="cmake"
++
++pre_configure_target() {
++  PKG_CMAKE_OPTS_TARGET+=" -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
++                           -DANDROID=OFF \
++                           -DENABLE_DISCORD_PRESENCE=OFF \
++                           -DUSE_X11=OFF \
++                           -DUSE_DRMKMS=ON \
++                           -DUSE_FBDEV=OFF \
++                           -DUSE_MALI=OFF \
++                           -DBUILD_QT_FRONTEND=OFF \
++                           -DBUILD_NOGUI_FRONTEND=ON \
++                           -DCMAKE_BUILD_TYPE=Release \
++                           -DBUILD_SHARED_LIBS=OFF \
++                           -DUSE_SDL2=ON \
++                           -DENABLE_CHEEVOS=ON \
++                           -DHAVE_EGL=ON \
++                           -DCMAKE_BUILD_TYPE=Debug"
++
++  export CXXFLAGS+=" -include cstdarg -include cstdint -include cstring -include cstdio -include limits"
++
++  sed -i '/eglGetConfigAttrib(m_display, config, EGL_NATIVE_VISUAL_ID, &visual_id);/r '${PKG_DIR}'/debug-egl.inc' \
++    ${PKG_BUILD}/src/common/gl/context_egl_gbm.cpp
++}
++
++makeinstall_target() {
++  mkdir -p ${INSTALL}/usr/bin \
++           ${INSTALL}/usr/lib/duckstation \
++           ${INSTALL}/usr/share/duckstation
++
++  # DuckStation resolves resources/, database/ and shaders/ relative to the
++  # real path of its executable (/proc/self/exe), so keep them together.
++  cp -rf ${PKG_BUILD}/.${TARGET_NAME}/bin/* ${INSTALL}/usr/lib/duckstation/
++  cp -rf ${PKG_DIR}/config/* ${INSTALL}/usr/lib/duckstation/
++  rm -rf ${INSTALL}/usr/lib/duckstation/common-tests
++
++  # A settings.ini next to the executable makes DuckStation switch to
++  # "portable mode" (user dir = read-only program dir), so keep the default
++  # config elsewhere. The launcher seeds /storage/.config/duckstation from it.
++  if [ -f ${INSTALL}/usr/lib/duckstation/settings.ini ]; then
++    mv ${INSTALL}/usr/lib/duckstation/settings.ini ${INSTALL}/usr/share/duckstation/settings.ini
++  fi
++  rm -f ${INSTALL}/usr/lib/duckstation/portable.txt
++
++  # BIOS lookup falls back to <program dir>/bios
++  rm -rf ${INSTALL}/usr/lib/duckstation/bios
++  ln -sf /storage/roms/bios ${INSTALL}/usr/lib/duckstation/bios
++
++  ln -sf ../lib/duckstation/duckstation-nogui ${INSTALL}/usr/bin/duckstation-nogui
++  install -m 0755 ${PKG_DIR}/scripts/duckstation.sh ${INSTALL}/usr/bin/duckstation.sh
++}
+diff --git a/packages/emulation/duckstation/patches/000-fix-cmake.patch b/packages/emulation/duckstation/patches/000-fix-cmake.patch
+new file mode 100644
+index 0000000000..8ff612e397
+--- /dev/null
++++ b/packages/emulation/duckstation/patches/000-fix-cmake.patch
+@@ -0,0 +1,112 @@
++diff -u -r /home/romain/duckstation/CMakeLists.txt ./CMakeLists.txt
++--- /home/romain/duckstation/CMakeLists.txt	2021-02-13 00:29:48.693304818 +0100
+++++ ./CMakeLists.txt	2021-02-13 00:52:42.082500283 +0100
++@@ -35,6 +35,7 @@
++ endif()
++ if(LINUX OR ANDROID)
++   option(USE_EGL "Support EGL OpenGL context creation" ON)
+++  option(USE_MALI "Link with libmali for EGL support" OFF)
++ endif()
++ if(LINUX AND NOT ANDROID)
++   option(USE_DRMKMS "Support DRM/KMS display and contexts" OFF)
++@@ -254,7 +254,7 @@
++ elseif(${CMAKE_SYSTEM_PROCESSOR} STREQUAL "aarch64" OR ${CMAKE_SYSTEM_PROCESSOR} STREQUAL "arm64")
++   set(CPU_ARCH "aarch64")
++ elseif(${CMAKE_SYSTEM_PROCESSOR} STREQUAL "arm" OR ${CMAKE_SYSTEM_PROCESSOR} STREQUAL "armv7-a" OR
++-       ${CMAKE_SYSTEM_PROCESSOR} STREQUAL "armv7l")
+++       ${CMAKE_SYSTEM_PROCESSOR} STREQUAL "armv7l" OR ${CMAKE_SYSTEM_PROCESSOR} STREQUAL "armv8l")
++   set(CPU_ARCH "aarch32")
++   if(ANDROID)
++     # Force ARM mode, since apparently ANDROID_ARM_MODE isn't working..
++diff -u -r /home/romain/duckstation/CMakeModules/FindEGL.cmake ./CMakeModules/FindEGL.cmake
++--- /home/romain/duckstation/CMakeModules/FindEGL.cmake	2021-02-13 00:29:48.693304818 +0100
+++++ ./CMakeModules/FindEGL.cmake	2021-02-13 00:45:35.564462969 +0100
++@@ -86,6 +86,17 @@
++         ${PKG_EGL_LIBRARY_DIRS}
++ )
++ 
+++if(USE_MALI)
+++pkg_check_modules(PKG_MALI QUIET mali)
+++find_library(MALI_LIBRARY
+++    NAMES
+++        mali
+++    HINTS
+++        ${PKG_MALI_LIBRARY_DIRS}
+++)
+++endif()
+++
+++
++ # NB: We do *not* use the version information from pkg-config, as that
++ #     is the implementation version (eg: the Mesa version)
++ if(EGL_INCLUDE_DIR)
++@@ -117,7 +128,11 @@
++ 
++ cmake_push_check_state(RESET)
++ list(APPEND CMAKE_REQUIRED_LIBRARIES "${EGL_LIBRARY}")
+++if(USE_MALI)
+++list(APPEND CMAKE_REQUIRED_LIBRARIES "${MALI_LIBRARY}")
+++endif()
++ list(APPEND CMAKE_REQUIRED_INCLUDES "${EGL_INCLUDE_DIR}")
+++list(APPEND CMAKE_REQUIRED_DEFINITIONS "-DEGL_NO_X11 -DUSE_X11=NO")
++ 
++ check_cxx_source_compiles("
++ #include <EGL/egl.h>
++@@ -161,7 +176,11 @@
++ mark_as_advanced(EGL_LIBRARY EGL_INCLUDE_DIR HAVE_EGL)
++ 
++ # compatibility variables
+++if (USE_MALI)
+++set(EGL_LIBRARIES ${EGL_LIBRARY} ${MALI_LIBRARY})
+++else()
++ set(EGL_LIBRARIES ${EGL_LIBRARY})
+++endif()
++ set(EGL_INCLUDE_DIRS ${EGL_INCLUDE_DIR})
++ set(EGL_VERSION_STRING ${EGL_VERSION})
++ 
++Seulement dans ./CMakeModules: FindEGL.cmake.orig
++diff -u -r /home/romain/duckstation/dep/glad/CMakeLists.txt ./dep/glad/CMakeLists.txt
++--- /home/romain/duckstation/dep/glad/CMakeLists.txt	2021-02-13 00:29:48.765302377 +0100
+++++ ./dep/glad/CMakeLists.txt	2021-02-13 00:42:20.848512028 +0100
++@@ -17,8 +17,9 @@
++   target_sources(glad PRIVATE src/glad_wgl.c)
++ else()
++   if(USE_EGL)
+++    target_compile_definitions(glad PRIVATE -DEGL_NO_X11)
++     target_sources(glad PRIVATE src/glad_egl.c)
++-    target_link_libraries(glad PRIVATE EGL::EGL)
+++    target_link_libraries(glad PRIVATE EGL)
++   endif()
++   if(USE_X11)
++     target_sources(glad PRIVATE src/glad_glx.c)
++diff -u -r /home/romain/duckstation/src/common/CMakeLists.txt ./src/common/CMakeLists.txt
++--- /home/romain/duckstation/src/common/CMakeLists.txt	2021-02-13 00:29:48.885298307 +0100
+++++ ./src/common/CMakeLists.txt	2021-02-13 00:42:20.848512028 +0100
++@@ -175,12 +175,13 @@
++     )
++   endif()
++   if(USE_DRMKMS)
+++    target_compile_definitions(common PRIVATE "-DEGL_NO_X11=1")
++     target_compile_definitions(common PRIVATE "-DUSE_GBM=1")
++     target_sources(common PRIVATE
++       gl/context_egl_gbm.cpp
++       gl/context_egl_gbm.h
++     )
++-    target_link_libraries(common PUBLIC GBM::GBM)
+++    target_link_libraries(common PUBLIC gbm EGL)
++   endif()
++ endif()
++ 
++diff -u -r /home/romain/duckstation/src/duckstation-nogui/CMakeLists.txt ./src/duckstation-nogui/CMakeLists.txt
++--- /home/romain/duckstation/src/duckstation-nogui/CMakeLists.txt	2021-02-13 00:29:48.901297765 +0100
+++++ ./src/duckstation-nogui/CMakeLists.txt	2021-02-13 00:56:19.913224314 +0100
++@@ -29,6 +29,10 @@
++   target_compile_definitions(duckstation-nogui PRIVATE "-DUSE_LIBEVDEV=1")
++   target_include_directories(duckstation-nogui PRIVATE ${LIBEVDEV_INCLUDE_DIRS})
++   target_link_libraries(duckstation-nogui PRIVATE ${LIBEVDEV_LIBRARIES})
+++if (USE_MALI)
+++  target_link_libraries(duckstation-nogui PRIVATE ${MALI_LIBRARY})
+++endif()
+++
++ endif()
++ 
++ if(WIN32)
+diff --git a/packages/emulation/duckstation/patches/0001-Fix-no-gui-EGL-surface-selection.patch b/packages/emulation/duckstation/patches/0001-Fix-no-gui-EGL-surface-selection.patch
+new file mode 100644
+index 0000000000..b0daf446cf
+--- /dev/null
++++ b/packages/emulation/duckstation/patches/0001-Fix-no-gui-EGL-surface-selection.patch
+@@ -0,0 +1,46 @@
++From 4a6da6f21c13ae05de98e38762504c2bb993fbf7 Mon Sep 17 00:00:00 2001
++From: Menno van der Graaf <mennovandergraaf@hotmail.com>
++Date: Tue, 6 Oct 2026 00:57:35 +0200
++Subject: [PATCH] Fix no-gui EGL surface selection
++
++---
++ src/common/gl/context_egl_gbm.cpp            | 9 +++++++++
++ src/duckstation-nogui/vty_host_interface.cpp | 2 +-
++ 2 files changed, 10 insertions(+), 1 deletion(-)
++
++diff --git a/src/common/gl/context_egl_gbm.cpp b/src/common/gl/context_egl_gbm.cpp
++index 2c67581c9..9333957a6 100644
++--- a/src/common/gl/context_egl_gbm.cpp
+++++ b/src/common/gl/context_egl_gbm.cpp
++@@ -116,6 +116,15 @@ EGLNativeWindowType ContextEGLGBM::GetNativeWindow(EGLConfig config)
++ {
++   EGLint visual_id;
++   eglGetConfigAttrib(m_display, config, EGL_NATIVE_VISUAL_ID, &visual_id);
+++  EGLint r = 0, g = 0, b = 0, a = 0;
+++  eglGetConfigAttrib(m_display, config, EGL_RED_SIZE, &r);
+++  eglGetConfigAttrib(m_display, config, EGL_GREEN_SIZE, &g);
+++  eglGetConfigAttrib(m_display, config, EGL_BLUE_SIZE, &b);
+++  eglGetConfigAttrib(m_display, config, EGL_ALPHA_SIZE, &a);
+++  Log_InfoPrintf("EGL config: visual_id=%c%c%c%c (0x%08x) R%d G%d B%d A%d",
+++                 visual_id & 0xff, (visual_id >> 8) & 0xff, (visual_id >> 16) & 0xff,
+++                 (visual_id >> 24) & 0xff, visual_id, r, g, b, a);
+++
++ 
++   Assert(!m_fb_surface);
++   m_fb_surface = gbm_surface_create(m_gbm_device, m_drm_display.GetWidth(), m_drm_display.GetHeight(),
++diff --git a/src/duckstation-nogui/vty_host_interface.cpp b/src/duckstation-nogui/vty_host_interface.cpp
++index 9b7b5a239..41ba01219 100644
++--- a/src/duckstation-nogui/vty_host_interface.cpp
+++++ b/src/duckstation-nogui/vty_host_interface.cpp
++@@ -81,7 +81,7 @@ std::optional<WindowInfo> VTYHostInterface::GetPlatformWindowInfo()
++   wi.surface_width = 0;
++   wi.surface_height = 0;
++   wi.surface_refresh_rate = 0.0f;
++-  wi.surface_format = WindowInfo::SurfaceFormat::Auto;
+++  wi.surface_format = WindowInfo::SurfaceFormat::RGB8;
++ 
++   const std::string fullscreen_mode = m_settings_interface->GetStringValue("GPU", "FullscreenMode", "");
++   if (!fullscreen_mode.empty())
++-- 
++2.55.0
++
+diff --git a/packages/emulation/duckstation/patches/006-maxbuttons.patch b/packages/emulation/duckstation/patches/006-maxbuttons.patch
+new file mode 100644
+index 0000000000..7d60823052
+--- /dev/null
++++ b/packages/emulation/duckstation/patches/006-maxbuttons.patch
+@@ -0,0 +1,13 @@
++diff --git a/src/frontend-common/controller_interface.h b/src/frontend-common/controller_interface.h
++index f97d0f6..563b5f4 100644
++--- a/src/frontend-common/sdl_controller_interface.h
+++++ b/src/frontend-common/sdl_controller_interface.h
++@@ -46,7 +46,7 @@
++   enum : int
++   {
++     MAX_NUM_AXES = 7,
++-    MAX_NUM_BUTTONS = 16,
+++    MAX_NUM_BUTTONS = 256,
++   };
++ 
++   struct ControllerData
+diff --git a/packages/emulation/duckstation/scripts/duckstation.sh b/packages/emulation/duckstation/scripts/duckstation.sh
+new file mode 100755
+index 0000000000..761464a61b
+--- /dev/null
++++ b/packages/emulation/duckstation/scripts/duckstation.sh
+@@ -0,0 +1,33 @@
++#!/bin/bash
++
++# SPDX-License-Identifier: GPL-2.0-or-later
++# Copyright (C) 2021-present Shanti Gilbert (https://github.com/shantigilbert)
++# Copyright (C) 2026 Menno van der Graaf (https://github.com/mercotui)
++
++PROG_DIR=/usr/lib/duckstation
++DEFAULT_CONFIG=/usr/share/duckstation/settings.ini
++CONFIG_DIR=/storage/.config/duckstation
++LOCAL_CONFIG=/storage/.local/share
++
++mkdir -p "${CONFIG_DIR}" "${LOCAL_CONFIG}" /storage/roms/bios /storage/roms/psx/textures
++
++# Seed writable files on first run
++[ -e "${CONFIG_DIR}/settings.ini" ] || cp -f "${DEFAULT_CONFIG}" "${CONFIG_DIR}/settings.ini"
++for f in inputprofiles shaders; do
++  [ -e "${CONFIG_DIR}/${f}" ] || cp -rf "${PROG_DIR}/${f}" "${CONFIG_DIR}/"
++done
++
++# Texture replacement
++[ -e "${CONFIG_DIR}/textures" ] || ln -s /storage/roms/psx/textures "${CONFIG_DIR}/textures"
++
++# DuckStation's default user dir is ~/.local/share/duckstation; point it at CONFIG_DIR
++if [ ! -L "${LOCAL_CONFIG}/duckstation" ]; then
++  rmdir "${LOCAL_CONFIG}/duckstation" 2>/dev/null   # only removes an empty dir
++  ln -s "${CONFIG_DIR}" "${LOCAL_CONFIG}/duckstation"
++fi
++
++if [ -z "${1}" ]; then
++  exec duckstation-nogui -fullscreen -settings "${CONFIG_DIR}/settings.ini"
++else
++  exec duckstation-nogui -fullscreen -settings "${CONFIG_DIR}/settings.ini" -- "${1}"
++fi
+diff --git a/packages/multimedia/SDL2/package.mk b/packages/multimedia/SDL2/package.mk
+new file mode 100644
+index 0000000000..d01c4b538d
+--- /dev/null
++++ b/packages/multimedia/SDL2/package.mk
+@@ -0,0 +1,91 @@
++# SPDX-License-Identifier: GPL-2.0-or-later
++# Copyright (C) 2018-present 5schatten (https://github.com/5schatten)
++# Copyright (C) 2019-present Shanti Gilbert (https://github.com/shantigilbert)
++# Copyright (C) 2022-present 7Ji (https://github.com/7Ji)
++
++PKG_NAME="SDL2"
++PKG_VERSION="2.32.10"
++#PKG_SHA256="332cb37d0be20cb9541739c61f79bae5a477427d79ae85e352089afdaf6666e4"
++PKG_LICENSE="GPL"
++PKG_SITE="https://www.libsdl.org/"
++PKG_URL="https://www.libsdl.org/release/SDL2-${PKG_VERSION}.tar.gz"
++PKG_DEPENDS_TARGET="toolchain alsa-lib systemd dbus ${OPENGLES} pulseaudio"
++PKG_LONGDESC="Simple DirectMedia Layer is a cross-platform development library designed to provide low level access to audio, keyboard, mouse, joystick, and graphics hardware."
++
++PKG_CMAKE_OPTS_TARGET="-DSDL_STATIC=OFF \
++                       -DSDL_LIBC=ON \
++                       -DSDL_GCC_ATOMICS=ON \
++                       -DSDL_ALTIVEC=OFF \
++                       -DSDL_OSS=OFF \
++                       -DSDL_ALSA=ON \
++                       -DSDL_ALSA_SHARED=ON \
++                       -DSDL_JACK=OFF \
++                       -DSDL_JACK_SHARED=OFF \
++                       -DSDL_ESD=OFF \
++                       -DSDL_ESD_SHARED=OFF \
++                       -DSDL_ARTS=OFF \
++                       -DSDL_ARTS_SHARED=OFF \
++                       -DSDL_NAS=OFF \
++                       -DSDL_NAS_SHARED=OFF \
++                       -DSDL_LIBSAMPLERATE=OFF \
++                       -DSDL_LIBSAMPLERATE_SHARED=OFF \
++                       -DSDL_SNDIO=OFF \
++                       -DSDL_DISKAUDIO=OFF \
++                       -DSDL_DUMMYAUDIO=OFF \
++                       -DSDL_DUMMYVIDEO=OFF \
++                       -DSDL_WAYLAND=OFF \
++                       -DSDL_WAYLAND_QT_TOUCH=ON \
++                       -DSDL_WAYLAND_SHARED=OFF \
++                       -DSDL_COCOA=OFF \
++                       -DSDL_DIRECTFB=OFF \
++                       -DSDL_VIVANTE=OFF \
++                       -DSDL_DIRECTFB_SHARED=OFF \
++                       -DSDL_FUSIONSOUND=OFF \
++                       -DSDL_FUSIONSOUND_SHARED=OFF \
++                       -DSDL_PTHREADS=ON \
++                       -DSDL_PTHREADS_SEM=ON \
++                       -DSDL_DIRECTX=OFF \
++                       -DSDL_CLOCK_GETTIME=OFF \
++                       -DSDL_RPATH=OFF \
++                       -DSDL_RENDER_D3D=OFF \
++                       -DSDL_X11=OFF \
++                       -DSDL_OPENGLES=ON \
++                       -DSDL_VULKAN=OFF \
++                       -DSDL_PULSEAUDIO=ON \
++                       -DSDL_HIDAPI_JOYSTICK=OFF"
++
++case "${DEVICE}" in
++  'Amlogic-ng'|'Amlogic-no'|'Amlogic-old')  # We should've used PROJECT=Amlogic-ce logically, but using these two device names here saves a comparasion (only device needs to be compared)
++    PKG_PATCH_DIRS="Amlogic"
++    PKG_CMAKE_OPTS_TARGET+=" -DSDL_MALI=ON -DSDL_KMSDRM=OFF"
++  ;;
++  'OdroidGoAdvance'|'GameForce'|'RK356x'|'OdroidM1')
++    PKG_PATCH_DIRS="Rockchip"
++    PKG_CMAKE_OPTS_TARGET+=" -DSDL_KMSDRM=ON"
++    PKG_DEPENDS_TARGET+=" libdrm mali-bifrost"
++    if [ "${DEVICE}" = "OdroidGoAdvance" ]; then
++      PKG_PATCH_DIRS+=" OdroidGoAdvance"
++      PKG_DEPENDS_TARGET+=" librga"
++      # This is evil, but we save multiple comparasions
++      pre_make_host() {
++        sed -i "s| -lrga||g" ${PKG_BUILD}/CMakeLists.txt
++      }
++      pre_make_target() {
++        if ! `grep -rnw "${PKG_BUILD}/CMakeLists.txt" -e '-lrga'`; then
++          sed -i "s|--no-undefined|--no-undefined -lrga|" ${PKG_BUILD}/CMakeLists.txt
++        fi
++      }
++    fi
++  ;;
++esac
++
++
++post_makeinstall_target() {
++  sed -e "s:\(['=LI]\)/usr:\\1${SYSROOT_PREFIX}/usr:g" -i ${SYSROOT_PREFIX}/usr/bin/sdl2-config
++  safe_remove ${INSTALL}/usr/bin
++}
++
++pre_configure_target() {
++  sed -i 's/static int (\*ALSA_snd_pcm_info_free)/static void (*ALSA_snd_pcm_info_free)/' \
++    ${PKG_BUILD}/src/audio/alsa/SDL_alsa_audio.c
++}
+diff --git a/packages/multimedia/SDL2/patches/Amlogic/0001-mali-fbdev-add-driver.patch b/packages/multimedia/SDL2/patches/Amlogic/0001-mali-fbdev-add-driver.patch
+new file mode 100644
+index 0000000000..fd820af316
+--- /dev/null
++++ b/packages/multimedia/SDL2/patches/Amlogic/0001-mali-fbdev-add-driver.patch
+@@ -0,0 +1,740 @@
++diff --git a/CMakeLists.txt b/CMakeLists.txt
++index 7e135490a..79aff66c1 100644
++--- a/CMakeLists.txt
+++++ b/CMakeLists.txt
++@@ -474,6 +474,7 @@ set_option(SDL_WASAPI              "Use the Windows WASAPI audio driver" ${WINDO
++ set_option(SDL_RENDER_D3D          "Enable the Direct3D render driver" ${WINDOWS})
++ set_option(SDL_RENDER_METAL        "Enable the Metal render driver" ${APPLE})
++ set_option(SDL_VIVANTE             "Use Vivante EGL video driver" ${UNIX_SYS})
+++set_option(SDL_MALI                "Use Mali EGL video driver" ${UNIX_SYS})
++ dep_option(SDL_VULKAN              "Enable Vulkan support" ON "ANDROID OR APPLE OR LINUX OR WINDOWS" OFF)
++ set_option(SDL_METAL               "Enable Metal support" ${APPLE})
++ set_option(SDL_KMSDRM              "Use KMS DRM video driver" ${UNIX_SYS})
++@@ -1501,6 +1502,7 @@ elseif(UNIX AND NOT APPLE AND NOT RISCOS AND NOT HAIKU)
++     CheckOpenGLES()
++     CheckWayland()
++     CheckVivante()
+++    CheckMali()
++     # FIXME: implement CheckVulkan()
++     if(SDL_VULKAN)
++       set(SDL_VIDEO_VULKAN 1)
++diff --git a/cmake/sdlchecks.cmake b/cmake/sdlchecks.cmake
++index a23b2ef07..d3f714b7c 100644
++--- a/cmake/sdlchecks.cmake
+++++ b/cmake/sdlchecks.cmake
++@@ -841,6 +841,28 @@ macro(CheckVivante)
++   endif()
++ endmacro()
++ 
+++# Requires:
+++# - n/a
+++macro(CheckMali)
+++  if(SDL_MALI)
+++    check_c_source_compiles("
+++        #define LINUX
+++        #define EGL_API_FB
+++        #include <EGL/egl.h>
+++        int main(int argc, char** argv) {}" HAVE_VIDEO_MALI_EGL_FB)
+++    if(HAVE_VIDEO_MALI_EGL_FB)
+++      set(HAVE_MALI TRUE)
+++      set(HAVE_SDL_VIDEO TRUE)
+++      set(SDL_VIDEO_DRIVER_MALI 1)
+++
+++      file(GLOB MALI_SOURCES ${SDL2_SOURCE_DIR}/src/video/mali-fbdev/*.c)
+++      list(APPEND SOURCE_FILES  ${MALI_SOURCES})
+++      list(APPEND SDL_CFLAGS -DLINUX -DEGL_API_FB)
+++      list(APPEND EXTRA_LIBS EGL)
+++    endif()
+++  endif()
+++endmacro()
+++
++ # Requires:
++ # - nada
++ macro(CheckGLX)
++diff --git a/configure b/configure
++index 6d39b056a..d771cbaaf 100755
++--- a/configure
+++++ b/configure
++@@ -922,6 +922,7 @@ enable_video_x11_xrandr
++ enable_video_x11_scrnsaver
++ enable_video_x11_xshape
++ enable_video_vivante
+++enable_video_mali
++ enable_video_cocoa
++ enable_video_metal
++ enable_render_metal
++@@ -1737,6 +1738,7 @@ Optional Features:
++   --enable-video-x11-xshape
++                           enable X11 XShape support [default=yes]
++   --enable-video-vivante  use Vivante EGL video driver [default=yes]
+++  --enable-video-mali     use Mali EGL video driver [default=yes]
++   --enable-video-cocoa    use Cocoa video driver [default=yes]
++   --enable-video-metal    include Metal support [default=yes]
++   --enable-render-metal   enable the Metal render driver [default=yes]
++@@ -25296,6 +25298,47 @@ printf "%s\n" "#define SDL_VIDEO_DRIVER_VIVANTE_VDK 1" >>confdefs.h
++     fi
++ }
++ 
+++CheckMaliVideo()
+++{
+++    # Check whether --enable-video-mali was given.
+++if test "${enable_video_mali+set}" = set; then :
+++  enableval=$enable_video_mali;
+++else
+++  enable_video_mali=yes
+++fi
+++    if test x$enable_video = xyes -a x$enable_video_mali = xyes; then
+++        { $as_echo "$as_me:${as_lineno-$LINENO}: checking for Mali FB API" >&5
+++$as_echo_n "checking for Mali FB API... " >&6; }
+++        have_mali_egl=no
+++        cat confdefs.h - <<_ACEOF >conftest.$ac_ext
+++/* end confdefs.h.  */
+++          #define LINUX
+++          #define EGL_API_FB
+++          #include <EGL/egl.h>
+++int
+++main ()
+++{
+++  ;
+++  return 0;
+++}
+++_ACEOF
+++if ac_fn_c_try_compile "$LINENO"; then :
+++        have_mali_egl=yes
+++fi
+++rm -f core conftest.err conftest.$ac_objext conftest.$ac_ext
+++        { $as_echo "$as_me:${as_lineno-$LINENO}: result: $have_mali_egl" >&5
+++$as_echo "$have_mali_egl" >&6; }
+++        if test x$have_mali_egl = xyes; then
+++$as_echo "#define SDL_VIDEO_DRIVER_MALI 1" >>confdefs.h
+++            EXTRA_CFLAGS="$EXTRA_CFLAGS -DLINUX -DEGL_API_FB"
+++            SOURCES="$SOURCES $srcdir/src/video/mali-fbdev/*.c"
+++            SUMMARY_video="${SUMMARY_video} mali"
+++            have_video=yes
+++        fi
+++    fi
+++}
+++
+++
++ CheckHaikuVideo()
++ {
++     if test x$enable_video = xyes; then
++@@ -28596,6 +28639,7 @@ printf "%s\n" "#define SDL_VIDEO_DRIVER_ANDROID 1" >>confdefs.h
++         CheckLinuxVersion
++         CheckRPATH
++         CheckVivanteVideo
+++        CheckMaliVideo
++ 
++         # Set up files for the misc library
++         if test x$enable_misc = xyes; then
++diff --git a/configure.ac b/configure.ac
++index 7be3b5c3f..7584f79e5 100644
++--- a/configure.ac
+++++ b/configure.ac
++@@ -2267,6 +2267,37 @@ CheckVivanteVideo()
++     fi
++ }
++ 
+++
+++dnl Set up the Mali video driver if enabled
+++CheckMaliVideo()
+++{
+++    AC_ARG_ENABLE(video-mali,
+++AC_HELP_STRING([--enable-video-mali], [use Mali EGL video driver [[default=yes]]]),
+++                  , enable_video_mali=yes)
+++    if test x$enable_video = xyes -a x$enable_video_mali = xyes; then
+++        AC_MSG_CHECKING(for Mali FB API)
+++        have_mali_egl=no
+++        AC_TRY_COMPILE([
+++          #define LINUX
+++          #define EGL_API_FB
+++          #include <EGL/egl.h>
+++        ],[
+++        ],[
+++        have_mali_egl=yes
+++        ])
+++        AC_MSG_RESULT($have_mali_egl)
+++
+++        if test x$have_mali_egl = xyes; then
+++            AC_DEFINE(SDL_VIDEO_DRIVER_MALI, 1, [ ])
+++            EXTRA_CFLAGS="$EXTRA_CFLAGS -DLINUX -DEGL_API_FB"
+++            SOURCES="$SOURCES $srcdir/src/video/mali-fbdev/*.c"
+++            SUMMARY_video="${SUMMARY_video} mali"
+++            have_video=yes
+++        fi
+++    fi
+++}
+++
+++
++ dnl Set up the Haiku video driver if enabled
++ CheckHaikuVideo()
++ {
++@@ -3843,6 +3874,7 @@ case "$host" in
++         CheckLinuxVersion
++         CheckRPATH
++         CheckVivanteVideo
+++        CheckMaliVideo
++ 
++         # Set up files for the misc library
++         if test x$enable_misc = xyes; then
++diff --git a/include/SDL_config.h.cmake b/include/SDL_config.h.cmake
++index ffcafd895..740fd15f1 100644
++--- a/include/SDL_config.h.cmake
+++++ b/include/SDL_config.h.cmake
++@@ -418,6 +418,7 @@
++ #cmakedefine SDL_VIDEO_DRIVER_RPI @SDL_VIDEO_DRIVER_RPI@
++ #cmakedefine SDL_VIDEO_DRIVER_VIVANTE @SDL_VIDEO_DRIVER_VIVANTE@
++ #cmakedefine SDL_VIDEO_DRIVER_VIVANTE_VDK @SDL_VIDEO_DRIVER_VIVANTE_VDK@
+++#cmakedefine SDL_VIDEO_DRIVER_MALI @SDL_VIDEO_DRIVER_MALI@
++ #cmakedefine SDL_VIDEO_DRIVER_OS2 @SDL_VIDEO_DRIVER_OS2@
++ #cmakedefine SDL_VIDEO_DRIVER_QNX @SDL_VIDEO_DRIVER_QNX@
++ #cmakedefine SDL_VIDEO_DRIVER_RISCOS @SDL_VIDEO_DRIVER_RISCOS@
++diff --git a/include/SDL_config.h.in b/include/SDL_config.h.in
++index f5dd166ff..29e9c1b25 100644
++--- a/include/SDL_config.h.in
+++++ b/include/SDL_config.h.in
++@@ -411,6 +411,7 @@
++ #undef SDL_VIDEO_DRIVER_NACL
++ #undef SDL_VIDEO_DRIVER_VIVANTE
++ #undef SDL_VIDEO_DRIVER_VIVANTE_VDK
+++#undef SDL_VIDEO_DRIVER_MALI
++ #undef SDL_VIDEO_DRIVER_OS2
++ #undef SDL_VIDEO_DRIVER_QNX
++ #undef SDL_VIDEO_DRIVER_RISCOS
++diff --git a/src/video/SDL_egl.c b/src/video/SDL_egl.c
++index a89c0e812..22b4abf48 100644
++--- a/src/video/SDL_egl.c
+++++ b/src/video/SDL_egl.c
++@@ -66,8 +66,8 @@
++ #define DEFAULT_OGL_ES_PVR (vc4 ? "libGLES_CM.so.1" : "libbrcmGLESv2.so")
++ #define DEFAULT_OGL_ES     (vc4 ? "libGLESv1_CM.so.1" : "libbrcmGLESv2.so")
++ 
++-#elif defined(SDL_VIDEO_DRIVER_ANDROID) || defined(SDL_VIDEO_DRIVER_VIVANTE)
++-/* Android */
+++#elif defined(SDL_VIDEO_DRIVER_ANDROID) || defined(SDL_VIDEO_DRIVER_VIVANTE) || defined(SDL_VIDEO_DRIVER_MALI)
+++/* Android, Vivante, and Mali fb */
++ #define DEFAULT_EGL        "libEGL.so"
++ #define DEFAULT_OGL_ES2    "libGLESv2.so"
++ #define DEFAULT_OGL_ES_PVR "libGLES_CM.so"
++diff --git a/src/video/SDL_sysvideo.h b/src/video/SDL_sysvideo.h
++index 344efec48..966c3df24 100644
++--- a/src/video/SDL_sysvideo.h
+++++ b/src/video/SDL_sysvideo.h
++@@ -478,6 +478,7 @@ extern VideoBootStrap DUMMY_evdev_bootstrap;
++ extern VideoBootStrap Wayland_bootstrap;
++ extern VideoBootStrap NACL_bootstrap;
++ extern VideoBootStrap VIVANTE_bootstrap;
+++extern VideoBootStrap MALI_bootstrap;
++ extern VideoBootStrap Emscripten_bootstrap;
++ extern VideoBootStrap QNX_bootstrap;
++ extern VideoBootStrap OFFSCREEN_bootstrap;
++diff --git a/src/video/SDL_video.c b/src/video/SDL_video.c
++index 04a1fdf65..c3382ca5c 100644
++--- a/src/video/SDL_video.c
+++++ b/src/video/SDL_video.c
++@@ -78,6 +78,9 @@ static VideoBootStrap *bootstrap[] = {
++ #ifdef SDL_VIDEO_DRIVER_VIVANTE
++     &VIVANTE_bootstrap,
++ #endif
+++#ifdef SDL_VIDEO_DRIVER_MALI
+++    &MALI_bootstrap,
+++#endif
++ #ifdef SDL_VIDEO_DRIVER_DIRECTFB
++     &DirectFB_bootstrap,
++ #endif
++diff --git a/src/video/mali-fbdev/SDL_maliopengles.c b/src/video/mali-fbdev/SDL_maliopengles.c
++new file mode 100644
++index 000000000..1d59cd6fe
++--- /dev/null
+++++ b/src/video/mali-fbdev/SDL_maliopengles.c
++@@ -0,0 +1,41 @@
+++/*
+++Simple DirectMedia Layer
+++  Copyright (C) 1997-2014 Sam Lantinga <slouken@libsdl.org>
+++
+++  This software is provided 'as-is', without any express or implied
+++  warranty.  In no event will the authors be held liable for any damages
+++  arising from the use of this software.
+++
+++  Permission is granted to anyone to use this software for any purpose,
+++  including commercial applications, and to alter it and redistribute it
+++  freely, subject to the following restrictions:
+++
+++  1. The origin of this software must not be misrepresented; you must not
+++     claim that you wrote the original software. If you use this software
+++     in a product, an acknowledgment in the product documentation would be
+++     appreciated but is not required.
+++  2. Altered source versions must be plainly marked as such, and must not be
+++     misrepresented as being the original software.
+++  3. This notice may not be removed or altered from any source distribution.
+++*/
+++#include "../../SDL_internal.h"
+++
+++#if SDL_VIDEO_DRIVER_MALI && SDL_VIDEO_OPENGL_EGL
+++
+++#include "SDL_maliopengles.h"
+++#include "SDL_malivideo.h"
+++
+++/* EGL implementation of SDL OpenGL support */
+++
+++int MALI_GLES_LoadLibrary(_THIS, const char *path)
+++{
+++    return SDL_EGL_LoadLibrary(_this, path, EGL_DEFAULT_DISPLAY, 0);
+++}
+++
+++SDL_EGL_CreateContext_impl(MALI)
+++SDL_EGL_SwapWindow_impl(MALI)
+++SDL_EGL_MakeCurrent_impl(MALI)
+++
+++#endif /* SDL_VIDEO_DRIVER_MALI && SDL_VIDEO_OPENGL_EGL */
+++
+++/* vi: set ts=4 sw=4 expandtab: */
++diff --git a/src/video/mali-fbdev/SDL_maliopengles.h b/src/video/mali-fbdev/SDL_maliopengles.h
++new file mode 100644
++index 000000000..52ccad25f
++--- /dev/null
+++++ b/src/video/mali-fbdev/SDL_maliopengles.h
++@@ -0,0 +1,48 @@
+++/*
+++Simple DirectMedia Layer
+++  Copyright (C) 1997-2014 Sam Lantinga <slouken@libsdl.org>
+++
+++  This software is provided 'as-is', without any express or implied
+++  warranty.  In no event will the authors be held liable for any damages
+++  arising from the use of this software.
+++
+++  Permission is granted to anyone to use this software for any purpose,
+++  including commercial applications, and to alter it and redistribute it
+++  freely, subject to the following restrictions:
+++
+++  1. The origin of this software must not be misrepresented; you must not
+++     claim that you wrote the original software. If you use this software
+++     in a product, an acknowledgment in the product documentation would be
+++     appreciated but is not required.
+++  2. Altered source versions must be plainly marked as such, and must not be
+++     misrepresented as being the original software.
+++  3. This notice may not be removed or altered from any source distribution.
+++*/
+++#include "../../SDL_internal.h"
+++
+++#ifndef _SDL_maliopengles_h
+++#define _SDL_maliopengles_h
+++
+++#if defined(SDL_VIDEO_DRIVER_MALI) && defined(SDL_VIDEO_OPENGL_EGL)
+++
+++#include "../SDL_sysvideo.h"
+++#include "../SDL_egl_c.h"
+++
+++/* OpenGLES functions */
+++#define MALI_GLES_GetAttribute SDL_EGL_GetAttribute
+++#define MALI_GLES_GetProcAddress SDL_EGL_GetProcAddress
+++#define MALI_GLES_UnloadLibrary SDL_EGL_UnloadLibrary
+++#define MALI_GLES_SetSwapInterval SDL_EGL_SetSwapInterval
+++#define MALI_GLES_GetSwapInterval SDL_EGL_GetSwapInterval
+++#define MALI_GLES_DeleteContext SDL_EGL_DeleteContext
+++
+++extern int MALI_GLES_LoadLibrary(_THIS, const char *path);
+++extern SDL_GLContext MALI_GLES_CreateContext(_THIS, SDL_Window * window);
+++extern int MALI_GLES_SwapWindow(_THIS, SDL_Window * window);
+++extern int MALI_GLES_MakeCurrent(_THIS, SDL_Window * window, SDL_GLContext context);
+++
+++#endif /* SDL_VIDEO_DRIVER_MALI && SDL_VIDEO_OPENGL_EGL */
+++
+++#endif /* _SDL_maliopengles_h */
+++
+++/* vi: set ts=4 sw=4 expandtab: */
++\ No newline at end of file
++diff --git a/src/video/mali-fbdev/SDL_malivideo.c b/src/video/mali-fbdev/SDL_malivideo.c
++new file mode 100644
++index 000000000..107c6d2f1
++--- /dev/null
+++++ b/src/video/mali-fbdev/SDL_malivideo.c
++@@ -0,0 +1,300 @@
+++/*
+++  Simple DirectMedia Layer
+++  Copyright (C) 1997-2014 Sam Lantinga <slouken@libsdl.org>
+++
+++  This software is provided 'as-is', without any express or implied
+++  warranty.  In no event will the authors be held liable for any damages
+++  arising from the use of this software.
+++
+++  Permission is granted to anyone to use this software for any purpose,
+++  including commercial applications, and to alter it and redistribute it
+++  freely, subject to the following restrictions:
+++
+++  1. The origin of this software must not be misrepresented; you must not
+++     claim that you wrote the original software. If you use this software
+++     in a product, an acknowledgment in the product documentation would be
+++     appreciated but is not required.
+++  2. Altered source versions must be plainly marked as such, and must not be
+++     misrepresented as being the original software.
+++  3. This notice may not be removed or altered from any source distribution.
+++*/
+++#include "../../SDL_internal.h"
+++
+++#if SDL_VIDEO_DRIVER_MALI
+++
+++/* SDL internals */
+++#include "../SDL_sysvideo.h"
+++#include "SDL_version.h"
+++#include "SDL_syswm.h"
+++#include "SDL_loadso.h"
+++#include "SDL_events.h"
+++#include "../../events/SDL_events_c.h"
+++
+++#ifdef SDL_INPUT_LINUXEV
+++#include "../../core/linux/SDL_evdev.h"
+++#endif
+++
+++#include "SDL_malivideo.h"
+++#include "SDL_maliopengles.h"
+++
+++static void MALI_Destroy(SDL_VideoDevice *device)
+++{
+++    if (device->driverdata != NULL) {
+++        SDL_free(device->driverdata);
+++        device->driverdata = NULL;
+++    }
+++}
+++
+++static SDL_VideoDevice *MALI_Create()
+++{
+++    SDL_VideoDevice *device;
+++
+++    /* Initialize SDL_VideoDevice structure */
+++    device = (SDL_VideoDevice *) SDL_calloc(1, sizeof(SDL_VideoDevice));
+++    if (device == NULL) {
+++        SDL_OutOfMemory();
+++        return NULL;
+++    }
+++
+++    device->driverdata = NULL;
+++
+++    /* Setup amount of available displays and current display */
+++    device->num_displays = 0;
+++
+++    /* Set device free function */
+++    device->free = MALI_Destroy;
+++
+++    /* Setup all functions which we can handle */
+++    device->VideoInit = MALI_VideoInit;
+++    device->VideoQuit = MALI_VideoQuit;
+++    device->GetDisplayModes = MALI_GetDisplayModes;
+++    device->SetDisplayMode = MALI_SetDisplayMode;
+++    device->CreateSDLWindow = MALI_CreateWindow;
+++    device->SetWindowTitle = MALI_SetWindowTitle;
+++    device->SetWindowPosition = MALI_SetWindowPosition;
+++    device->SetWindowSize = MALI_SetWindowSize;
+++    device->ShowWindow = MALI_ShowWindow;
+++    device->HideWindow = MALI_HideWindow;
+++    device->DestroyWindow = MALI_DestroyWindow;
+++    device->GetWindowWMInfo = MALI_GetWindowWMInfo;
+++
+++    device->GL_LoadLibrary = MALI_GLES_LoadLibrary;
+++    device->GL_GetProcAddress = MALI_GLES_GetProcAddress;
+++    device->GL_UnloadLibrary = MALI_GLES_UnloadLibrary;
+++    device->GL_CreateContext = MALI_GLES_CreateContext;
+++    device->GL_MakeCurrent = MALI_GLES_MakeCurrent;
+++    device->GL_SetSwapInterval = MALI_GLES_SetSwapInterval;
+++    device->GL_GetSwapInterval = MALI_GLES_GetSwapInterval;
+++    device->GL_SwapWindow = MALI_GLES_SwapWindow;
+++    device->GL_DeleteContext = MALI_GLES_DeleteContext;
+++
+++    device->PumpEvents = MALI_PumpEvents;
+++
+++    return device;
+++}
+++
+++VideoBootStrap MALI_bootstrap = {
+++    "mali",
+++    "Mali EGL Video Driver",
+++    MALI_Create,
+++    NULL /* no ShowMessageBox implementation */
+++};
+++
+++/*****************************************************************************/
+++/* SDL Video and Display initialization/handling functions                   */
+++/*****************************************************************************/
+++
+++int MALI_VideoInit(_THIS)
+++{
+++    SDL_VideoDisplay display;
+++    SDL_DisplayMode current_mode;
+++    SDL_DisplayData *data;
+++    int fd;
+++    struct fb_var_screeninfo vinfo;
+++
+++    data = (SDL_DisplayData *) SDL_calloc(1, sizeof(SDL_DisplayData));
+++    if (data == NULL) {
+++        return SDL_OutOfMemory();
+++    }
+++
+++
+++    fd = open("/dev/fb0", O_RDWR, 0);
+++    if (fd < 0) {
+++        return SDL_SetError("mali-fbdev: Could not open framebuffer device");
+++    }
+++
+++    if (ioctl(fd, FBIOGET_VSCREENINFO, &vinfo) < 0) {
+++        MALI_VideoQuit(_this);
+++        return SDL_SetError("mali-fbdev: Could not get framebuffer information");
+++    }
+++
+++    vinfo.yres_virtual = vinfo.yres * 2;
+++//    vinfo.activate = FB_ACTIVATE_NOW;
+++    if (ioctl(fd, FBIOPUT_VSCREENINFO, vinfo) == -1) {
+++	printf("*** ERROR SETTING VSCREEN\n");
+++//        MALI_VideoQuit(_this);
+++//        return SDL_SetError("mali-fbdev: Could not get framebuffer information");
+++    }
+++    close(fd);
+++    data->native_display.width = vinfo.xres;
+++    data->native_display.height = vinfo.yres;
+++
+++    SDL_zero(current_mode);
+++    current_mode.w = vinfo.xres;
+++    current_mode.h = vinfo.yres;
+++    /* FIXME: Is there a way to tell the actual refresh rate? */
+++    current_mode.refresh_rate = 60;
+++    /* 32 bpp for default */
+++    //current_mode.format = SDL_PIXELFORMAT_ABGR8888;
+++    current_mode.format = SDL_PIXELFORMAT_RGBX8888;
+++
+++    current_mode.driverdata = NULL;
+++
+++    SDL_zero(display);
+++    display.desktop_mode = current_mode;
+++    display.current_mode = current_mode;
+++    display.driverdata = data;
+++
+++    SDL_AddVideoDisplay(&display, SDL_FALSE);
+++
+++#ifdef SDL_INPUT_LINUXEV
+++    if (SDL_EVDEV_Init() < 0) {
+++        return -1;
+++    }
+++#endif
+++
+++    return 0;
+++}
+++
+++void MALI_VideoQuit(_THIS)
+++{
+++    int fd = open("/dev/tty", O_RDWR);
+++    ioctl(fd, VT_ACTIVATE, 5);
+++    ioctl(fd, VT_ACTIVATE, 1);
+++    close(fd);
+++    system("setterm -cursor on");
+++
+++#ifdef SDL_INPUT_LINUXEV
+++    SDL_EVDEV_Quit();
+++#endif
+++
+++}
+++
+++void MALI_GetDisplayModes(_THIS, SDL_VideoDisplay * display)
+++{
+++    /* Only one display mode available, the current one */
+++    SDL_AddDisplayMode(display, &display->current_mode);
+++}
+++
+++int MALI_SetDisplayMode(_THIS, SDL_VideoDisplay * display, SDL_DisplayMode * mode)
+++{
+++    return 0;
+++}
+++
+++int MALI_CreateWindow(_THIS, SDL_Window * window)
+++{
+++    SDL_WindowData *windowdata;
+++    SDL_DisplayData *displaydata;
+++
+++    displaydata = SDL_GetDisplayDriverData(0);
+++
+++    /* Allocate window internal data */
+++    windowdata = (SDL_WindowData *) SDL_calloc(1, sizeof(SDL_WindowData));
+++    if (windowdata == NULL) {
+++        return SDL_OutOfMemory();
+++    }
+++
+++    /* Windows have one size for now */
+++    window->w = displaydata->native_display.width;
+++    window->h = displaydata->native_display.height;
+++
+++    /* OpenGL ES is the law here */
+++    window->flags |= SDL_WINDOW_OPENGL;
+++
+++    if (!_this->egl_data) {
+++        if (SDL_GL_LoadLibrary(NULL) < 0) {
+++            return -1;
+++        }
+++    }
+++    windowdata->egl_surface = SDL_EGL_CreateSurface(_this, (NativeWindowType) &displaydata->native_display);
+++
+++    if (windowdata->egl_surface == EGL_NO_SURFACE) {
+++        MALI_VideoQuit(_this);
+++        return SDL_SetError("mali-fbdev: Can't create EGL window surface");
+++    }
+++
+++    /* Setup driver data for this window */
+++    window->driverdata = windowdata;
+++
+++    /* One window, it always has focus */
+++    SDL_SetMouseFocus(window);
+++    SDL_SetKeyboardFocus(window);
+++
+++    /* Window has been successfully created */
+++    return 0;
+++}
+++
+++void MALI_DestroyWindow(_THIS, SDL_Window * window)
+++{
+++    SDL_WindowData *data;
+++
+++    data = window->driverdata;
+++    if (data) {
+++        if (data->egl_surface != EGL_NO_SURFACE) {
+++            SDL_EGL_DestroySurface(_this, data->egl_surface);
+++            data->egl_surface = EGL_NO_SURFACE;
+++        }
+++        SDL_free(data);
+++    }
+++    window->driverdata = NULL;
+++}
+++
+++void MALI_SetWindowTitle(_THIS, SDL_Window * window)
+++{
+++}
+++
+++void MALI_SetWindowPosition(_THIS, SDL_Window * window)
+++{
+++}
+++
+++void MALI_SetWindowSize(_THIS, SDL_Window * window)
+++{
+++}
+++
+++void MALI_ShowWindow(_THIS, SDL_Window * window)
+++{
+++}
+++
+++void MALI_HideWindow(_THIS, SDL_Window * window)
+++{
+++}
+++
+++/*****************************************************************************/
+++/* SDL Window Manager function                                               */
+++/*****************************************************************************/
+++SDL_bool MALI_GetWindowWMInfo(_THIS, SDL_Window * window, struct SDL_SysWMinfo *info)
+++{
+++    if (info->version.major <= SDL_MAJOR_VERSION) {
+++        return SDL_TRUE;
+++    } else {
+++        SDL_SetError("application not compiled with SDL %d.%d\n",
+++            SDL_MAJOR_VERSION, SDL_MINOR_VERSION);
+++    }
+++
+++    /* Failed to get window manager information */
+++    return SDL_FALSE;
+++}
+++
+++/*****************************************************************************/
+++/* SDL event functions                                                       */
+++/*****************************************************************************/
+++void MALI_PumpEvents(_THIS)
+++{
+++#ifdef SDL_INPUT_LINUXEV
+++    SDL_EVDEV_Poll();
+++#endif
+++}
+++
+++#endif /* SDL_VIDEO_DRIVER_MALI */
+++
+++/* vi: set ts=4 sw=4 expandtab: */
++diff --git a/src/video/mali-fbdev/SDL_malivideo.h b/src/video/mali-fbdev/SDL_malivideo.h
++new file mode 100644
++index 000000000..162eb9da9
++--- /dev/null
+++++ b/src/video/mali-fbdev/SDL_malivideo.h
++@@ -0,0 +1,82 @@
+++/*
+++  Simple DirectMedia Layer
+++  Copyright (C) 1997-2014 Sam Lantinga <slouken@libsdl.org>
+++
+++  This software is provided 'as-is', without any express or implied
+++  warranty.  In no event will the authors be held liable for any damages
+++  arising from the use of this software.
+++
+++  Permission is granted to anyone to use this software for any purpose,
+++  including commercial applications, and to alter it and redistribute it
+++  freely, subject to the following restrictions:
+++
+++  1. The origin of this software must not be misrepresented; you must not
+++     claim that you wrote the original software. If you use this software
+++     in a product, an acknowledgment in the product documentation would be
+++     appreciated but is not required.
+++  2. Altered source versions must be plainly marked as such, and must not be
+++     misrepresented as being the original software.
+++  3. This notice may not be removed or altered from any source distribution.
+++*/
+++
+++#ifndef _SDL_malivideo_h
+++#define _SDL_malivideo_h
+++
+++#include "../../SDL_internal.h"
+++#include "../SDL_sysvideo.h"
+++
+++#include "SDL_egl.h"
+++
+++#include <EGL/egl.h>
+++#include <linux/vt.h>
+++#include <linux/fb.h>
+++#include <sys/types.h>
+++#include <sys/stat.h>
+++#include <sys/ioctl.h>
+++#include <fcntl.h>
+++#include <unistd.h>
+++#include <stdlib.h>
+++
+++// Shadow the definition of fbdev_window
+++struct shadow_fbdev_window {
+++    unsigned short width;
+++    unsigned short height;
+++};
+++
+++typedef struct SDL_DisplayData
+++{
+++    struct shadow_fbdev_window native_display;
+++} SDL_DisplayData;
+++
+++typedef struct SDL_WindowData
+++{
+++    EGLSurface egl_surface;
+++} SDL_WindowData;
+++
+++/****************************************************************************/
+++/* SDL_VideoDevice functions declaration                                    */
+++/****************************************************************************/
+++
+++/* Display and window functions */
+++int MALI_VideoInit(_THIS);
+++void MALI_VideoQuit(_THIS);
+++void MALI_GetDisplayModes(_THIS, SDL_VideoDisplay *display);
+++int MALI_SetDisplayMode(_THIS, SDL_VideoDisplay *display, SDL_DisplayMode *mode);
+++int MALI_CreateWindow(_THIS, SDL_Window *window);
+++void MALI_SetWindowTitle(_THIS, SDL_Window *window);
+++void MALI_SetWindowPosition(_THIS, SDL_Window *window);
+++void MALI_SetWindowSize(_THIS, SDL_Window *window);
+++void MALI_ShowWindow(_THIS, SDL_Window *window);
+++void MALI_HideWindow(_THIS, SDL_Window *window);
+++void MALI_DestroyWindow(_THIS, SDL_Window *window);
+++
+++/* Window manager function */
+++SDL_bool MALI_GetWindowWMInfo(_THIS, SDL_Window *window,
+++                             struct SDL_SysWMinfo *info);
+++
+++/* Event functions */
+++void MALI_PumpEvents(_THIS);
+++
+++#endif /* _SDL_malivideo_h */
+++
+++/* vi: set ts=4 sw=4 expandtab: */
+diff --git a/packages/multimedia/SDL2/patches/OdroidGoAdvance/0005-SDL2-2.28.1.odroidgoa-support.patch b/packages/multimedia/SDL2/patches/OdroidGoAdvance/0005-SDL2-2.28.1.odroidgoa-support.patch
+new file mode 100644
+index 0000000000..742d343d27
+--- /dev/null
++++ b/packages/multimedia/SDL2/patches/OdroidGoAdvance/0005-SDL2-2.28.1.odroidgoa-support.patch
+@@ -0,0 +1,290 @@
++diff --git a/CMakeLists.txt b/CMakeLists.txt 
++index 26fe83205..32a339b05 100644
++--- a/CMakeLists.txt
+++++ b/CMakeLists.txt
++@@ -672,7 +672,7 @@
++     check_c_compiler_flag("" HAVE_NO_UNDEFINED)
++     set(CMAKE_REQUIRED_FLAGS ${ORIG_CMAKE_REQUIRED_FLAGS})
++     if(HAVE_NO_UNDEFINED AND NOT (USE_CLANG AND WINDOWS))
++-      list(APPEND EXTRA_LDFLAGS_BUILD "-Wl,--no-undefined")
+++      list(APPEND EXTRA_LDFLAGS_BUILD "-Wl,--no-undefined -lrga")
++     endif()
++   endif()
++
++diff --git a/Makefile.in b/Makefile.in
++index 65ccc55..bf4e3aa 100644
++--- a/Makefile.in
+++++ b/Makefile.in
++@@ -22,7 +22,7 @@ CC      = @CC@
++ INCLUDE = @INCLUDE@
++ CFLAGS  = @BUILD_CFLAGS@
++ EXTRA_CFLAGS = @EXTRA_CFLAGS@
++-LDFLAGS = @BUILD_LDFLAGS@
+++LDFLAGS = @BUILD_LDFLAGS@ -lrga
++ EXTRA_LDFLAGS = @EXTRA_LDFLAGS@
++ LIBTOOL = @LIBTOOL@
++ INSTALL = @INSTALL@
++diff --git a/src/video/kmsdrm/SDL_kmsdrmopengles.c b/src/video/kmsdrm/SDL_kmsdrmopengles.c
++index 017372c..cff1b25 100644
++--- a/src/video/kmsdrm/SDL_kmsdrmopengles.c
+++++ b/src/video/kmsdrm/SDL_kmsdrmopengles.c
++@@ -30,10 +30,14 @@
++ #include "SDL_kmsdrmopengles.h"
++ #include "SDL_kmsdrmdyn.h"
++ #include <errno.h>
+++#include<stdbool.h>
++ 
++ #ifndef EGL_PLATFORM_GBM_MESA
++ #define EGL_PLATFORM_GBM_MESA 0x31D7
++ #endif
+++
+++extern rga_info_t src_info;
+++extern rga_info_t dst_info;
++ 
++ /* EGL implementation of SDL OpenGL support */
++ 
++@@ -93,6 +97,7 @@
++     SDL_VideoData *viddata = ((SDL_VideoData *)_this->driverdata);
++     KMSDRM_FBInfo *fb_info;
++     int ret = 0;
+++    struct gbm_bo* rga_buffer = NULL;
++ 
++     /* Always wait for the previous issued flip before issuing a new one,
++        even if you do async flips. */
++@@ -143,7 +148,29 @@
++     }
++ 
++     /* Get an actual usable fb for the next front buffer. */
++-    fb_info = KMSDRM_FBFromBO(_this, windata->next_bo);
+++    //fb_info = KMSDRM_FBFromBO(_this, windata->next_bo);
+++
+++    if (src_info.fd) {
+++            close(src_info.fd);
+++        }
+++        src_info.fd = KMSDRM_gbm_bo_get_fd(windata->next_bo);
+++        dst_info.fd = viddata->rga_buffer_prime_fds[viddata->rga_buffer_index];
+++        if (c_RkRgaBlit(&src_info, &dst_info, NULL) < 0) {
+++            SDL_LogError(SDL_LOG_CATEGORY_VIDEO,
+++                            "Failed to rga blit\n");
+++        }
+++
+++        rga_buffer = viddata->rga_buffers[viddata->rga_buffer_index];
+++        fb_info = KMSDRM_FBFromBO(_this, rga_buffer);
+++
+++        if (!fb_info) {
+++         SDL_LogError(SDL_LOG_CATEGORY_VIDEO, "Could not get a framebuffer");
+++         return 0;
+++        }
+++
+++        viddata->rga_buffer_index = (viddata->rga_buffer_index + 1) % RGA_BUFFERS_MAX;
+++    
+++    
++     if (!fb_info) {
++         SDL_LogError(SDL_LOG_CATEGORY_VIDEO, "Could not get a framebuffer");
++         return 0;
++
++diff --git a/src/video/kmsdrm/SDL_kmsdrmsym.h b/src/video/kmsdrm/SDL_kmsdrmsym.h
++index 6956232..6d8b3fd 100644
++--- a/src/video/kmsdrm/SDL_kmsdrmsym.h
+++++ b/src/video/kmsdrm/SDL_kmsdrmsym.h
++@@ -133,6 +133,8 @@
++ SDL_KMSDRM_SYM(struct gbm_bo *,gbm_surface_lock_front_buffer,(struct gbm_surface *surf))
++ SDL_KMSDRM_SYM(void,gbm_surface_release_buffer,(struct gbm_surface *surf, struct gbm_bo *bo))
++ 
+++SDL_KMSDRM_SYM(int,gbm_bo_get_fd,(struct gbm_bo *bo))
+++
++ SDL_KMSDRM_SYM_OPT(uint64_t,gbm_bo_get_modifier,(struct gbm_bo *bo))
++ SDL_KMSDRM_SYM_OPT(int,gbm_bo_get_plane_count,(struct gbm_bo *bo))
++ SDL_KMSDRM_SYM_OPT(uint32_t,gbm_bo_get_offset,(struct gbm_bo *bo, int plane))
++
++diff --git a/src/video/kmsdrm/SDL_kmsdrmvideo.c b/src/video/kmsdrm/SDL_kmsdrmvideo.c
++index f7e7648..144f8f9 100644
++--- a/src/video/kmsdrm/SDL_kmsdrmvideo.c
+++++ b/src/video/kmsdrm/SDL_kmsdrmvideo.c
++@@ -44,6 +44,7 @@
++ #include "SDL_kmsdrmopengles.h"
++ #include "SDL_kmsdrmmouse.h"
++ #include "SDL_kmsdrmdyn.h"
+++#include <sys/ioctl.h>
++ #include "SDL_kmsdrmvulkan.h"
++ #include <sys/stat.h>
++ #include <sys/param.h>
++@@ -51,6 +52,7 @@
++ #include <dirent.h>
++ #include <poll.h>
++ #include <errno.h>
+++#include<stdbool.h>
++
++ #ifdef __OpenBSD__
++ static SDL_bool openbsd69orgreater = SDL_FALSE;
++@@ -70,6 +72,9 @@
++ #ifndef EGL_PLATFORM_GBM_MESA
++ #define EGL_PLATFORM_GBM_MESA 0x31D7
++ #endif
+++
+++rga_info_t src_info = {0};
+++rga_info_t dst_info = {0};
++
++ static int
++ check_modestting(int devindex)
++@@ -330,5 +335,45 @@
++     SDL_free(fb_info);
++ }
++
+++static void
+++KMSDRM_InitRotateBuffer(_THIS, int frameWidth, int frameHeight)
+++{
+++    int l_frameHeight;
+++    SDL_VideoData *viddata = ((SDL_VideoData *)_this->driverdata);
+++
+++    // initialize 2D raster graphic acceleration unit (RGA)
+++    c_RkRgaInit();
+++
+++    l_frameHeight = frameHeight;
+++    if(l_frameHeight % 32 != 0) {
+++    l_frameHeight = (frameHeight + 32) & (~31);
+++    }
+++
+++    // create buffers for RGA with adjusted stride
+++    for (int i = 0; i < RGA_BUFFERS_MAX; ++i)
+++    {
+++        viddata->rga_buffers[i] = KMSDRM_gbm_bo_create(viddata->gbm_dev,
+++            frameWidth, l_frameHeight,
+++            GBM_FORMAT_XRGB8888, GBM_BO_USE_SCANOUT | GBM_BO_USE_RENDERING);
+++        assert(viddata->rga_buffers[i]);
+++
+++        viddata->rga_buffer_prime_fds[i] = KMSDRM_gbm_bo_get_fd(viddata->rga_buffers[i]);
+++    }
+++    viddata->rga_buffer_index = 0;
+++
+++    // setup rotation
+++    src_info.fd = -1;
+++    src_info.mmuFlag = 1;
+++    src_info.rotation = HAL_TRANSFORM_ROT_270;
+++
+++    // swap width and height and adjust stride here because our source buffer is 480x854
+++    rga_set_rect(&src_info.rect, 0, 0, frameHeight, frameWidth, l_frameHeight, frameWidth, RK_FORMAT_BGRA_8888);
+++
+++    dst_info.fd = -1;
+++    dst_info.mmuFlag = 1;
+++
+++    rga_set_rect(&dst_info.rect, 0, 0, frameWidth, frameHeight, frameWidth, frameHeight, RK_FORMAT_BGRA_8888);
+++}
+++
++ KMSDRM_FBInfo *KMSDRM_FBFromBO(_THIS, struct gbm_bo *bo)
++ {
++@@ -687,8 +732,8 @@
++     modedata->mode_index = mode_index;
++
++     display.driverdata = dispdata;
++-    display.desktop_mode.w = dispdata->mode.hdisplay;
++-    display.desktop_mode.h = dispdata->mode.vdisplay;
+++    display.desktop_mode.w = dispdata->mode.vdisplay;
+++    display.desktop_mode.h = dispdata->mode.hdisplay;
++     display.desktop_mode.refresh_rate = dispdata->mode.vrefresh;
++     display.desktop_mode.format = SDL_PIXELFORMAT_ARGB8888;
++     display.desktop_mode.driverdata = modedata;
++@@ -964,7 +1009,8 @@
++        or SetWindowFullscreen, send a fake event for now since the actual
++        recreation is deferred */
++     KMSDRM_GetModeToSet(window, &mode);
++-    SDL_SendWindowEvent(window, SDL_WINDOWEVENT_RESIZED, mode.hdisplay, mode.vdisplay);
+++    SDL_SendWindowEvent(window, SDL_WINDOWEVENT_RESIZED, mode.vdisplay, mode.hdisplay);
+++
++ }
++
++ /* This determines the size of the fb, which comes from the GBM surface
++@@ -1000,13 +1046,13 @@
++        mode that's set in sync with what SDL_video.c thinks is set */
++     KMSDRM_GetModeToSet(window, &dispdata->mode);
++
++-    display->current_mode.w = dispdata->mode.hdisplay;
++-    display->current_mode.h = dispdata->mode.vdisplay;
+++    display->current_mode.w = dispdata->mode.vdisplay;
+++    display->current_mode.h = dispdata->mode.hdisplay;
++     display->current_mode.refresh_rate = dispdata->mode.vrefresh;
++     display->current_mode.format = SDL_PIXELFORMAT_ARGB8888;
++
++     windata->gs = KMSDRM_gbm_surface_create(viddata->gbm_dev,
++-                                            dispdata->mode.hdisplay, dispdata->mode.vdisplay,
+++                                            dispdata->mode.vdisplay, dispdata->mode.hdisplay,
++                                             surface_fmt, surface_flags);
++
++     if (!windata->gs) {
++@@ -1030,7 +1076,7 @@
++     ret = SDL_EGL_MakeCurrent(_this, windata->egl_surface, egl_context);
++
++     SDL_SendWindowEvent(window, SDL_WINDOWEVENT_RESIZED,
++-                        dispdata->mode.hdisplay, dispdata->mode.vdisplay);
+++                        dispdata->mode.vdisplay, dispdata->mode.hdisplay);
++
++     windata->egl_surface_dirty = SDL_FALSE;
++
++@@ -1116,8 +1162,8 @@
++             modedata->mode_index = i;
++         }
++
++-        mode.w = conn->modes[i].hdisplay;
++-        mode.h = conn->modes[i].vdisplay;
+++        mode.w = conn->modes[i].vdisplay;
+++        mode.h = conn->modes[i].hdisplay;
++         mode.refresh_rate = conn->modes[i].vrefresh;
++         mode.format = SDL_PIXELFORMAT_ARGB8888;
++         mode.driverdata = modedata;
++@@ -1229,6 +1275,13 @@
++     /*********************************************************************/
++     SDL_free(window->driverdata);
++     window->driverdata = NULL;
+++        for (int i = 0; i < RGA_BUFFERS_MAX; ++i) {
+++            close(viddata->rga_buffer_prime_fds[i]);
+++        }
+++        if (src_info.fd) {
+++            close(src_info.fd);
+++        }
+++        c_RkRgaDeInit();
++ }
++
++ /**********************************************************************/
++@@ -1248,6 +1301,7 @@
++     NativeDisplayType egl_display;
++     drmModeModeInfo *mode;
++     int ret = 0;
+++    SDL_DisplayData *data;
++
++     /* Allocate window internal data */
++     windata = (SDL_WindowData *)SDL_calloc(1, sizeof(SDL_WindowData));
++@@ -1356,6 +1410,9 @@
++     SDL_SetMouseFocus(window);
++     SDL_SetKeyboardFocus(window);
++
+++        data = (SDL_DisplayData *) SDL_GetDisplayForWindow(window)->driverdata;
+++        KMSDRM_InitRotateBuffer(_this, data->mode.hdisplay, data->mode.vdisplay);
+++
++     /* Tell the app that the window has moved to top-left. */
++     SDL_SendWindowEvent(window, SDL_WINDOWEVENT_MOVED, 0, 0);
++
++
++diff --git a/src/video/kmsdrm/SDL_kmsdrmvideo.h b/src/video/kmsdrm/SDL_kmsdrmvideo.h
++index 566fc85..10519e9 100644
++--- a/src/video/kmsdrm/SDL_kmsdrmvideo.h
+++++ b/src/video/kmsdrm/SDL_kmsdrmvideo.h
++@@ -32,6 +32,10 @@
++ #include <xf86drmMode.h>
++ #include <gbm.h>
++ #include <EGL/egl.h>
+++#include <rga/RgaApi.h>
+++#include <assert.h>
+++
+++#define RGA_BUFFERS_MAX (3)
++
++ typedef struct SDL_VideoData
++ {
++@@ -53,6 +57,10 @@ typedef struct SDL_VideoData
++        open 1 FD and create 1 gbm device. */
++     SDL_bool gbm_init;
++
+++    struct gbm_bo* rga_buffers[RGA_BUFFERS_MAX];
+++    int rga_buffer_prime_fds[RGA_BUFFERS_MAX];
+++    int rga_buffer_index;
+++
++ } SDL_VideoData;
+diff --git a/packages/multimedia/SDL2/patches/OdroidGoAdvance/0006-KMSDRM-Also-rotate-the-cursor.patch b/packages/multimedia/SDL2/patches/OdroidGoAdvance/0006-KMSDRM-Also-rotate-the-cursor.patch
+new file mode 100644
+index 0000000000..1ade9cbaf5
+--- /dev/null
++++ b/packages/multimedia/SDL2/patches/OdroidGoAdvance/0006-KMSDRM-Also-rotate-the-cursor.patch
+@@ -0,0 +1,88 @@
++From e3faf45fbcf6d274243d5dd1edbd59cfdfa7636a Mon Sep 17 00:00:00 2001
++From: Johnny on Flame <johnnyonflame@hotmail.com>
++Date: Tue, 15 Feb 2022 02:17:17 -0300
++Subject: [PATCH] KMSDRM: Also rotate the cursor.
++
++---
++ src/video/kmsdrm/SDL_kmsdrmmouse.c | 14 +++++++-------
++ 1 file changed, 7 insertions(+), 7 deletions(-)
++
++diff --git a/src/video/kmsdrm/SDL_kmsdrmmouse.c b/src/video/kmsdrm/SDL_kmsdrmmouse.c
++index b22fc8e..c9d7700 100644
++--- a/src/video/kmsdrm/SDL_kmsdrmmouse.c
+++++ b/src/video/kmsdrm/SDL_kmsdrmmouse.c
++@@ -156,6 +156,7 @@
++     uint8_t *src_row;
++
++     int i;
+++    int j;
++     int ret;
++
++     if (!curdata || !dispdata->cursor_bo) {
++@@ -176,8 +177,10 @@
++
++     /* Copy from the cursor buffer to a buffer that we can dump to the GBM BO. */
++     for (i = 0; i < curdata->h; i++) {
++-        src_row = &((uint8_t *)curdata->buffer)[i * curdata->w * 4];
++-        SDL_memcpy(ready_buffer + (i * bo_stride), src_row, (size_t)4 * curdata->w);
+++        for (j = 0; j < curdata->w; j++) {
+++            src_row = ((uint32_t*)curdata->buffer)[i * curdata->w + j];
+++            SDL_memcpy(ready_buffer + ((curdata->w - j + 1) * bo_stride) + i, &src_row, 4);
+++        }
++     }
++
++     /* Dump the cursor buffer to our GBM BO. */
++@@ -216,10 +216,10 @@ KMSDRM_DumpCursorToBO(SDL_VideoDisplay *display, SDL_Cursor *cursor)
++     bo_handle = KMSDRM_gbm_bo_get_handle(dispdata->cursor_bo).u32;
++     if (curdata->hot_x == 0 && curdata->hot_y == 0) {
++         ret = KMSDRM_drmModeSetCursor(viddata->drm_fd, dispdata->crtc->crtc_id,
++-                                      bo_handle, dispdata->cursor_w, dispdata->cursor_h);
+++                                      bo_handle, dispdata->cursor_h, dispdata->cursor_w);
++     } else {
++         ret = KMSDRM_drmModeSetCursor2(viddata->drm_fd, dispdata->crtc->crtc_id,
++-                                       bo_handle, dispdata->cursor_w, dispdata->cursor_h, curdata->hot_x, curdata->hot_y);
+++                                       bo_handle, dispdata->cursor_h, dispdata->cursor_w, curdata->hot_y, (curdata->w - curdata->hot_x + 1));
++     }
++
++     if (ret) {
++@@ -417,9 +417,9 @@ KMSDRM_WarpMouseGlobal(int x, int y)
++     SDL_Mouse *mouse = SDL_GetMouse();
++
++     if (mouse && mouse->cur_cursor && mouse->focus) {
++-
++         SDL_Window *window = mouse->focus;
++         SDL_DisplayData *dispdata = (SDL_DisplayData *)SDL_GetDisplayForWindow(window)->driverdata;
+++        KMSDRM_CursorData *curdata = mouse->cur_cursor->driverdata;
++
++         /* Update internal mouse position. */
++         SDL_SendMouseMotion(mouse->focus, mouse->mouseID, 0, x, y);
++@@ -428,7 +428,7 @@ KMSDRM_WarpMouseGlobal(int x, int y)
++         if (dispdata->cursor_bo) {
++             int ret = 0;
++
++-            ret = KMSDRM_drmModeMoveCursor(dispdata->cursor_bo_drm_fd, dispdata->crtc->crtc_id, x, y);
+++            ret = KMSDRM_drmModeMoveCursor(dispdata->cursor_bo_drm_fd, dispdata->crtc->crtc_id, y, dispdata->mode.vdisplay + curdata->w - x);
++
++             if (ret) {
++                 SDL_SetError("drmModeMoveCursor() failed.");
++@@ -484,16 +484,16 @@ KMSDRM_MoveCursor(SDL_Cursor * cursor)
++     /* We must NOT call SDL_SendMouseMotion() here or we will enter recursivity!
++        That's why we move the cursor graphic ONLY. */
++     if (mouse && mouse->cur_cursor && mouse->focus) {
++-
++         SDL_Window *window = mouse->focus;
++         SDL_DisplayData *dispdata = (SDL_DisplayData *)SDL_GetDisplayForWindow(window)->driverdata;
+++        KMSDRM_CursorData *curdata = mouse->cur_cursor->driverdata;
++
++         if (!dispdata->cursor_bo) {
++             SDL_SetError("Cursor not initialized properly.");
++             return;
++         }
++
++-        ret = KMSDRM_drmModeMoveCursor(dispdata->cursor_bo_drm_fd, dispdata->crtc->crtc_id, mouse->x, mouse->y);
+++        ret = KMSDRM_drmModeMoveCursor(dispdata->cursor_bo_drm_fd, dispdata->crtc->crtc_id, mouse->y, dispdata->mode.vdisplay - curdata->w - mouse->x);
++
++         if (ret) {
++             SDL_SetError("drmModeMoveCursor() failed.");
++--
++2.30.2
+diff --git a/packages/multimedia/SDL2/patches/Rockchip/0001-kmsdrm-Workaround-missing-gbm_bo_get_offset-and-SDL_.patch b/packages/multimedia/SDL2/patches/Rockchip/0001-kmsdrm-Workaround-missing-gbm_bo_get_offset-and-SDL_.patch
+new file mode 100644
+index 0000000000..21701c330f
+--- /dev/null
++++ b/packages/multimedia/SDL2/patches/Rockchip/0001-kmsdrm-Workaround-missing-gbm_bo_get_offset-and-SDL_.patch
+@@ -0,0 +1,45 @@
++diff --git a/src/video/SDL_egl.c b/src/video/SDL_egl.c
++index 87d693e8d..891d588c4 100644
++--- a/src/video/SDL_egl.c
+++++ b/src/video/SDL_egl.c
++@@ -1032,7 +1032,7 @@ SDL_EGL_CreateContext(_THIS, EGLSurface egl_surface)
++         return NULL;
++     }
++ 
++-    _this->egl_data->egl_swapinterval = 0;
+++    _this->egl_data->egl_swapinterval = 1;
++ 
++     if (SDL_EGL_MakeCurrent(_this, egl_surface, egl_context) < 0) {
++         /* Save the SDL error set by SDL_EGL_MakeCurrent */
++--- a/src/video/kmsdrm/SDL_kmsdrmopengles.c
+++++ b/src/video/kmsdrm/SDL_kmsdrmopengles.c
++@@ -41,11 +41,17 @@
++ {
++     /* if SDL was _also_ built with the Raspberry Pi driver (so we're
++        definitely a Pi device), default to GLES2. */
++-#ifdef SDL_VIDEO_DRIVER_RPI
++-    *mask = SDL_GL_CONTEXT_PROFILE_ES;
++-    *major = 2;
++-    *minor = 0;
+++    /* JohnnyonFlame: We want to use GLESv2 as a default for compatibility
+++       with SDL 2.0.10 builds, but offer the ability to use the OpenGL defaults
+++       if ever needed. */
+++#ifndef SDL_VIDEO_DRIVER_RPI
+++    if (!SDL_getenv("SDL_DEFAULT_CONTEXT_PROFILE"))
++ #endif
+++    {
+++        *mask = SDL_GL_CONTEXT_PROFILE_ES;
+++        *major = 2;
+++        *minor = 0;
+++    }
++ }
++ 
++ int KMSDRM_GLES_LoadLibrary(_THIS, const char *path)
++@@ -73,6 +79,7 @@
++     int KMSDRM_GLES_SetSwapInterval(_THIS, int interval)
++ {
++ 
+++  interval = 1;
++     if (!_this->egl_data) {
++         return SDL_SetError("EGL not initialized");
++     }
+diff --git a/packages/virtual/image/package.mk b/packages/virtual/image/package.mk
+index f1cb72a8f7..7da473c532 100644
+--- a/packages/virtual/image/package.mk
++++ b/packages/virtual/image/package.mk
+@@ -62,4 +62,6 @@ fi
+ # NTFS programs for all except RPi until RPi is updated to kernel > 6.18
+ [ ! "${PROJECT}" = "RPi" ] && [ "${PROJECT}" != "Amlogic-ce" ] && PKG_DEPENDS_TARGET+=" ntfsprogs-plus"
+ 
++PKG_DEPENDS_TARGET+=" duckstation"
++
+ true
+-- 
+2.55.0
+
